@@ -7,22 +7,25 @@ import joblib
 import numpy as np
 from PIL import Image, ImageOps
 
+from backend.artifacts import validate_comparison
 from backend.dataset import load_manifest
 from backend.localization import extract_regions, image_metrics, match_boxes
 from backend.spatial import SpatialModel
 
 
 def evaluate(args):
-    rows = [row for row in load_manifest(args.manifest, args.category) if row['split'] == 'test']
+    rows = [row for row in load_manifest(args.manifest, args.category, require_test_masks=True) if row['split'] == 'test']
     if not rows:
         raise ValueError('No test images in this manifest.')
     artifacts = Path(args.artifacts)
-    model = SpatialModel.load(artifacts / f'{args.category}.pt', args.device)
+    model = SpatialModel.load(artifacts / f'{args.category}.pt', args.device, expected_category=args.category)
     test_hashes = {row['sha256'] for row in rows}
     if test_hashes.intersection(model.training_hashes + model.validation_hashes):
         raise ValueError('Test data overlaps spatial training or threshold calibration.')
     quantum_path = artifacts / f'{args.category}-quantum.joblib'
     comparison = joblib.load(quantum_path) if quantum_path.is_file() else None
+    if comparison:
+        validate_comparison(comparison, model)
     if comparison and test_hashes.intersection(comparison.training_hashes + comparison.validation_hashes):
         raise ValueError('Test data overlaps quantum/classical fitting or selection.')
     labels, predictions, embeddings, records = [], [], [], []
@@ -38,7 +41,7 @@ def evaluate(args):
                 embeddings.append(model.embedding(image))
         if row['mask']:
             with Image.open(row['mask']) as source:
-                truth = np.asarray(source.convert('L')) > 0
+                truth = np.asarray(ImageOps.exif_transpose(source).convert('L')) > 0
         else:
             truth = np.zeros_like(mask)
         if truth.shape != mask.shape:

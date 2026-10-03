@@ -25,7 +25,7 @@ def train(args):
         raise ValueError('Source groups cross train/validation boundaries.')
     if len(train_rows) > 256:
         raise ValueError('Provide a predeclared stratified subset of at most 256 training samples for BOTH models.')
-    model = SpatialModel.load(Path(args.artifacts) / f'{args.category}.pt', args.device)
+    model = SpatialModel.load(Path(args.artifacts) / f'{args.category}.pt', args.device, expected_category=args.category)
     if set(model.training_hashes).intersection(row['sha256'] for row in val_rows):
         raise ValueError('Validation images were used to fit the spatial model.')
     def features(rows):
@@ -38,6 +38,9 @@ def train(args):
     val_x, val_y = features(val_rows)
     comparison = QuantumComparison(args.seed)
     report = comparison.fit(train_x, train_y, val_x, val_y)
+    comparison.category = args.category
+    comparison.spatial_sha256 = model.artifact_sha256
+    report.update(category=args.category, spatial_sha256=model.artifact_sha256, seed=args.seed)
     comparison.training_hashes = [row['sha256'] for row in train_rows]
     comparison.validation_hashes = [row['sha256'] for row in val_rows]
     output = Path(args.artifacts)

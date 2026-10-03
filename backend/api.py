@@ -10,6 +10,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from PIL import Image, ImageOps, UnidentifiedImageError
 from starlette.concurrency import run_in_threadpool
 
+from backend.artifacts import validate_comparison
 from backend.dataset import CATEGORIES
 
 app = FastAPI(title='QuantumInspect', version='0.1.0', description='Local research inference. No fabricated predictions or physical-defect guarantees.')
@@ -24,7 +25,7 @@ logger = logging.getLogger('quantuminspect')
 @lru_cache(maxsize=1)
 def spatial_model(category, modified):
     from backend.spatial import SpatialModel
-    return SpatialModel.load(ARTIFACTS / f'{category}.pt')
+    return SpatialModel.load(ARTIFACTS / f'{category}.pt', expected_category=category)
 
 
 @lru_cache(maxsize=1)
@@ -64,9 +65,15 @@ def infer(image, category, include_quantum):
         result, _ = model.predict(image)
         q_path = ARTIFACTS / f'{category}-quantum.joblib'
         if include_quantum and q_path.is_file():
-            comparison = quantum_model(category, q_path.stat().st_mtime_ns)
-            output = comparison.predict(model.embedding(image)[None])
-            result['quantum'] = dict(prediction='DEFECTIVE' if int(output['quantum'][0]) else 'NORMAL', classical_prediction='DEFECTIVE' if int(output['classical'][0]) else 'NORMAL', margin=float(output['quantum_margin'][0]))
+            try:
+                comparison = quantum_model(category, q_path.stat().st_mtime_ns)
+                validate_comparison(comparison, model)
+                output = comparison.predict(model.embedding(image)[None])
+                result['quantum'] = dict(prediction='DEFECTIVE' if int(output['quantum'][0]) else 'NORMAL', classical_prediction='DEFECTIVE' if int(output['classical'][0]) else 'NORMAL', margin=float(output['quantum_margin'][0]))
+            except Exception:
+                logger.exception('Optional quantum comparison failed; preserving spatial evidence')
+                result['quantum'] = None
+                result['warning'] += ' Quantum comparison unavailable or incompatible. Retrain it against the current spatial model; spatial results are unchanged.'
         elif include_quantum:
             result['warning'] += ' Quantum comparison not trained for this category.'
         result['elapsed_ms'] = (time.perf_counter() - started) * 1000
