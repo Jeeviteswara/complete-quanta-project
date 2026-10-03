@@ -17,15 +17,19 @@ def image_hash(path):
         return hashlib.sha256(str(image.size).encode() + image.tobytes()).hexdigest()
 
 
-def validate_manifest(rows):
-    if not rows:
-        raise ValueError('Dataset is empty.')
+def validate_manifest(rows, require_test_masks=False):
+    if not isinstance(rows, list) or not rows:
+        raise ValueError('Dataset is empty or is not an image list.')
     seen = {}
     for row in rows:
-        if row['split'] not in {'train', 'val', 'test'}:
+        if not isinstance(row, dict) or row.get('split') not in ('train', 'val', 'test'):
             raise ValueError('Unknown dataset split.')
-        if row['label'] not in {0, 1}:
+        if type(row.get('label')) is not int or row['label'] not in (0, 1):
             raise ValueError('Labels must be 0 (normal) or 1 (defective).')
+        if not isinstance(row.get('path'), str) or not row['path']:
+            raise ValueError('Every image needs a file path.')
+        if require_test_masks and row['split'] == 'test' and row['label'] and not row.get('mask'):
+            raise ValueError('Every defective test image needs a ground-truth mask.')
         digest = image_hash(row['path'])
         if row.get('sha256') and digest != row['sha256']:
             raise ValueError(f"Image changed after manifest creation: {row['path']}")
@@ -34,11 +38,20 @@ def validate_manifest(rows):
             raise ValueError('Duplicate image content crosses train, validation, or test boundaries.')
         seen[digest] = row['split']
         if row.get('mask'):
+            mask_digest = image_hash(row['mask'])
+            if row.get('mask_sha256') and mask_digest != row['mask_sha256']:
+                raise ValueError(f"Mask changed after manifest creation: {row['mask']}")
+            row['mask_sha256'] = mask_digest
             with Image.open(row['path']) as image, Image.open(row['mask']) as mask:
-                if image.size != mask.size:
+                normalized_image = ImageOps.exif_transpose(image)
+                normalized_mask = ImageOps.exif_transpose(mask).convert('L')
+                if normalized_image.size != normalized_mask.size:
                     raise ValueError(f"Mask size does not match image: {row['path']}")
-                if not np.asarray(mask.convert('L')).any():
+                has_defect = bool(np.asarray(normalized_mask).any())
+                if row['label'] and not has_defect:
                     raise ValueError(f"Defective image has an empty mask: {row['path']}")
+                if not row['label'] and has_defect:
+                    raise ValueError(f"Normal image has a nonempty defect mask: {row['path']}")
     return rows
 
 
@@ -72,12 +85,12 @@ def inspect_dataset(root, category, seed=42):
             raise ValueError(f'Missing ground-truth mask: {mask}')
         rows.append(dict(path=str(path), category=category, label=int(defect != 'good'),
                          mask=str(mask) if defect != 'good' else None, split='test', sha256=image_hash(path)))
-    return validate_manifest(rows)
+    return validate_manifest(rows, require_test_masks=True)
 
 
-def load_manifest(path, category=None):
+def load_manifest(path, category=None, require_test_masks=False):
     document = json.loads(Path(path).read_text())
-    rows = validate_manifest(document['images'])
+    rows = validate_manifest(document['images'], require_test_masks=require_test_masks)
     return [row for row in rows if category is None or row.get('category') == category]
 
 

@@ -69,6 +69,22 @@ Open `http://localhost:3000`. API documentation is at `http://127.0.0.1:8000/doc
 
 The API runs without model artifacts and truthfully reports that training is required. Uploads are kept only in request memory; inspection history and accounts are not implemented. Do not expose this unauthenticated local research service publicly.
 
+## Run the existing stages together
+
+The in-app **Setup checklist** shows live service, category, and evaluation readiness. Its workstation commands are not commands for the hosted v0 preview. The hosted UI cannot reach a service on your own computer.
+
+After installing dependencies and obtaining the licensed dataset, run the complete spatial baseline on your workstation:
+
+```powershell
+.\.venv\Scripts\python.exe -m backend.pipeline --root data/mvtec_ad --category screw
+```
+
+This reuses the dataset inspector, spatial trainer, and held-out evaluator below. Add `--device cuda` for your configured GPU. Add `--labeled-manifest data/labeled-screw.json` to train the quantum/classical comparison in the same run, only if independent labeled data is available. Without that manifest, the quantum stage is explicitly omitted, not simulated.
+
+Existing category outputs are protected by default. Use individual stage commands to resume; `--overwrite` explicitly replaces a complete experiment after all computation succeeds. Training and evaluation run in a temporary directory so a computational failure leaves the previous experiment intact. Do not run inference or another training process while replacing artifacts. If a quantum artifact already exists, a replacement full run requires its labeled manifest to avoid silently leaving a stale comparison.
+
+New manifests hash masks as well as images. Evaluation rejects defective test images without masks, changed masks, and category-mismatched models. New quantum artifacts are bound to the spatial artifact SHA-256; legacy or stale comparisons need retraining. During inspection an unavailable optional comparison leaves valid spatial results intact with an explicit warning; evaluation refuses an incompatible comparison rather than reporting misleading metrics.
+
 ## Stage 1: inspect MVTec AD
 
 Download [MVTec AD from its official provider](https://www.mvtec.com/company/research/datasets/mvtec-ad), respecting **CC BY-NC-SA 4.0**. Commercial use needs appropriate licensing. This project does not redistribute the dataset.

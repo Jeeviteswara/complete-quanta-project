@@ -10,6 +10,7 @@ from PIL import Image, ImageOps
 from torchvision.models import ResNet18_Weights, resnet18
 from torchvision.transforms import functional as TF
 
+from backend.artifacts import artifact_hash
 from backend.dataset import CATEGORIES, load_manifest
 from backend.localization import extract_regions, heatmap_data_uri
 
@@ -70,16 +71,20 @@ class SpatialModel:
                     warning='Unsupervised anomaly evidence, not a verified physical defect. NORMAL means no retained region, not a guarantee of quality.'), mask
 
     @classmethod
-    def load(cls, path, device=None):
+    def load(cls, path, device=None, expected_category=None):
+        digest = artifact_hash(path)
         artifact = torch.load(path, map_location='cpu', weights_only=True)
         if artifact.get('version') != 1:
             raise ValueError('Unsupported spatial artifact.')
+        if expected_category is not None and artifact.get('category') != expected_category:
+            raise ValueError('Spatial artifact category does not match the requested category.')
         model = cls(device=device, pretrained=False)
         model.extractor.load_state_dict(artifact['extractor'])
         model.bank = artifact['bank'].to(model.device)
         model.pixel_threshold = artifact['pixel_threshold']
         model.image_threshold = artifact['image_threshold']
         model.category = artifact['category']
+        model.artifact_sha256 = digest
         model.training_hashes = artifact['training_hashes']
         model.validation_hashes = artifact['validation_hashes']
         return model
