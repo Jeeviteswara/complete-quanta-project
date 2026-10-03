@@ -1,0 +1,21 @@
+
+node_modules/
+.next/
+out/
+.env
+.env.*
+!.env.example
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+
+# Local datasets and trained artifacts
+data/
+artifacts/
+*.pt
+*.pth
+*.joblib
+*.parquet
